@@ -90,12 +90,12 @@ void setSignalsProperties() {
     sigprocmask(SIG_SETMASK, &mask, NULL);
 }
 
-int startListen(int port) {
+int startListen(int port, char* ip) {
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in socket_ipv4_address = {.sin_family = AF_INET,
             .sin_port = htons(port),
             .sin_addr =
-                    {inet_addr("127.0.0.1")}};
+                    {inet_addr(ip)}};
 
 
     int bind_result = bind(
@@ -191,29 +191,65 @@ void epollIteration(int epoll_fd, ClientInfo *listen_info, int users_limit, int 
     }
 }
 
+struct Args {
+    int port;
+    char *ip;
+    int out_fd;
+    int limit;
+};
 
-int main(int argc, char *argv[]) {
-    if (argc <= 1) {
-        fprintf(stderr, "Error port is required");
-        return 1;
-    }
-
-    int out_fd = STDOUT_FILENO;
-    if (argc > 2) {
-        out_fd = open(argv[2], O_WRONLY|O_CREAT, 0644);
-    }
-
-    int limit = 5;
-    if (argc > 2) {
-        limit = atoi(argv[3]);
-        if (limit == -1) {
-            limit = INT_MAX;
+struct Args parseArgs(int argnum, char *argv[]) {
+    struct Args ans = {.port = -1, .ip = "127.0.0.1", .out_fd=STDOUT_FILENO, .limit = 5};
+    for (int i = 0; i < argnum; ++i) {
+        if (argv[i][0] == '-') {
+            if (i + 1 >= argnum) {
+                fprintf(stderr, "no argument for %s\n", argv[i]);
+                exit(1);
+            }
+            if (strcmp(argv[i], "-p") == 0) {
+                ans.port = atoi(argv[i + 1]);
+            } else if (strcmp(argv[i], "-i") == 0) {
+                ans.ip = argv[i + 1];
+                if (strcmp(ans.ip, "localhost") == 0) {
+                    ans.ip = "127.0.0.1";
+                }
+            } else if (strcmp(argv[i], "-o") == 0) {
+                ans.out_fd = open(argv[i + 1], O_WRONLY | O_CREAT, 0644);
+                if (ans.out_fd < 0) {
+                    fprintf(stderr, "can't open %s\n", argv[i + 1]);
+                    exit(1);
+                }
+            } else if (strcmp(argv[i], "-l") == 0) {
+                ans.limit = atoi(argv[i + 1]);
+                if (ans.limit == -1) {
+                    ans.limit = INT_MAX;
+                }
+            } else {
+                fprintf(stderr, "incorrect argument %s\n", argv[i]);
+                exit(1);
+            }
         }
     }
 
+    if (ans.port < 0) {
+        fprintf(stderr, "port is required\n");
+        exit(1);
+    }
+
+    return ans;
+}
+
+
+int main(int argc, char *argv[]) {
+    struct Args args = parseArgs(argc - 1, argv + 1);
+
+    int out_fd = args.out_fd;
+    int limit = args.limit;
+
+
     setSignalsProperties();
 
-    int listen_fd = startListen(atoi(argv[1]));
+    int listen_fd = startListen(args.port, args.ip);
     if (listen_fd == -1) {
         return 1;
     }
@@ -228,7 +264,6 @@ int main(int argc, char *argv[]) {
     struct epoll_event socket_event = {.events=EPOLLIN, .data.ptr=&listen_info};
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &socket_event);
 
-    size_t clients_received = 0;
 
     while (terminate == 0) {
         epollIteration(epoll_fd, &listen_info, limit, out_fd);
