@@ -17,6 +17,10 @@ char *strnchr(char *str, size_t n, char c) {
 }
 
 ReadResult readLine(int fd, DynamicBuffer *buffer) {
+    if (strnchr(buffer->data, buffer->size, '\n') != NULL) {
+        return LineRead;
+    }
+
     char buf[BUF_MAX];
     int read_res = read(fd, buf, BUF_MAX);
     while (1) {

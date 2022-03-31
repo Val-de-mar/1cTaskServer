@@ -38,7 +38,7 @@ void setSignalsProperties() {
 int main(int argc, char *argv[]) {
     assert(argc > 3);
     in_addr_t ip = inet_addr(argv[1]);
-    uint16_t port = htons(atoi(argv[2]))
+    uint16_t port = htons(atoi(argv[2]));
 
     int soc = socket(AF_INET, SOCK_STREAM, 0);
 

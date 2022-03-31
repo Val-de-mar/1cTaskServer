@@ -41,37 +41,39 @@ enum ClientResult {
 };
 
 enum ClientResult clientProcess(ClientInfo *info, int out_fd) {
-    ReadResult line_result = readLine(info->fd, &info->buffer);
 
-    switch (line_result) {
-        case EndOfFileRead:
-            if (info->buffer.size != 0) {
-                info->buffer.data[info->buffer.size] = '\0';
-                if (dprintf(out_fd, "%zu - %s\n", info->number, info->buffer.data) < 1) {
+    while (1) {
+        ReadResult line_result = readLine(info->fd, &info->buffer);
+
+        switch (line_result) {
+            case EndOfFileRead:
+                if (info->buffer.size != 0) {
+                    info->buffer.data[info->buffer.size] = '\0';
+                    if (dprintf(out_fd, "%zu - %s\n", info->number, info->buffer.data) < 1) {
+                        fprintf(stderr, "Error with writing to file");
+                    }
+                    bufferCut(&info->buffer, info->buffer.size);
+                }
+                return ClosedClient;
+            case LineRead: {
+                char *newline_char = strchr(info->buffer.data, '\n');
+                size_t place = newline_char - info->buffer.data + 1;
+                char save = info->buffer.data[place];
+                info->buffer.data[place] = '\0';
+                if (dprintf(out_fd, "%zu - %s", info->number, info->buffer.data) < 1) {
                     fprintf(stderr, "Error with writing to file");
                 }
-                bufferCut(&info->buffer, info->buffer.size);
-            }
-            return ClosedClient;
-        case LineRead: {
-            char *newline_char = strchr(info->buffer.data, '\n');
-            size_t place = newline_char - info->buffer.data + 1;
-            char save = info->buffer.data[place];
-            info->buffer.data[place] = '\0';
-            if (dprintf(out_fd, "%zu - %s", info->number, info->buffer.data) < 1) {
-                fprintf(stderr, "Error with writing to file");
-            }
 
-            info->buffer.data[place] = save;
-            bufferCut(&info->buffer, place);
-            return OkClient;
+                info->buffer.data[place] = save;
+                bufferCut(&info->buffer, place);
+                return OkClient;
+            }
+            case WaitingRead:
+                return OkClient;
+            case ErrorRead:
+                return ErrorClient;
         }
-        case WaitingRead:
-            return OkClient;
-        case ErrorRead:
-            return ErrorClient;
     }
-
 }
 
 void setSignalsProperties() {
@@ -144,7 +146,8 @@ int epoll_acept(int epoll_fd, ClientInfo *listen_info, int free_space) {
     return working;
 }
 
-void epollIteration(int epoll_fd, int event_arr_size, ClientInfo *listen_info, int users_limit) {
+void epollIteration(int epoll_fd, ClientInfo *listen_info, int users_limit, int out_fd) {
+    const int event_arr_size = 28;
     static int working = 0;
     int listen_fd = listen_info->fd;
 
@@ -165,7 +168,7 @@ void epollIteration(int epoll_fd, int event_arr_size, ClientInfo *listen_info, i
             continue;
         }
 
-        switch (clientProcess(info, STDOUT_FILENO)) {
+        switch (clientProcess(info, out_fd)) {
             case ErrorClient: {
                 fprintf(stderr, "Error with client %zu, it will be shut down\n", info->number);
             }
@@ -197,7 +200,7 @@ int main(int argc, char *argv[]) {
 
     int out_fd = STDOUT_FILENO;
     if (argc > 2) {
-        out_fd = open(argv[2], O_WRONLY);
+        out_fd = open(argv[2], O_WRONLY|O_CREAT, 0644);
     }
 
     int limit = 5;
@@ -224,12 +227,11 @@ int main(int argc, char *argv[]) {
 
     struct epoll_event socket_event = {.events=EPOLLIN, .data.ptr=&listen_info};
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &socket_event);
-    const int event_arr_size = 28;
 
     size_t clients_received = 0;
 
     while (terminate == 0) {
-        epollIteration(epoll_fd, event_arr_size, &listen_info, limit);
+        epollIteration(epoll_fd, &listen_info, limit, out_fd);
     }
     for (AnarchyList *cur = listen_info.me->next; cur != NULL;) {
         AnarchyList *next = cur->next;
