@@ -66,7 +66,7 @@ enum ClientResult clientProcess(ClientInfo *info, int out_fd) {
 
                 info->buffer.data[place] = save;
                 bufferCut(&info->buffer, place);
-                return OkClient;
+                continue;
             }
             case WaitingRead:
                 return OkClient;
