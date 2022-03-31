@@ -34,11 +34,49 @@ void setSignalsProperties() {
     sigprocmask(SIG_SETMASK, &mask, NULL);
 }
 
+struct Args {
+    int port;
+    char *ip;
+};
+
+struct Args parseArgs(int argnum, char *argv[]) {
+    struct Args ans = {.port = -1, .ip = "127.0.0.1"};
+    for (int i = 0; i < argnum; ++i) {
+        if (argv[i][0] == '-') {
+            if (i + 1 >= argnum) {
+                fprintf(stderr, "no argument for %s\n", argv[i]);
+                exit(1);
+            }
+            if (strcmp(argv[i], "-p") == 0) {
+                ans.port = atoi(argv[i + 1]);
+            } else if (strcmp(argv[i], "-i") == 0) {
+                ans.ip = argv[i + 1];
+                if (strcmp(ans.ip, "localhost") == 0) {
+                    ans.ip = "127.0.0.1";
+                }
+            } else {
+                fprintf(stderr, "incorrect argument %s\n", argv[i]);
+                exit(1);
+            }
+        }
+    }
+
+    if (ans.port < 0) {
+        fprintf(stderr, "port is required\n");
+        exit(1);
+    }
+
+    return ans;
+}
+
 
 int main(int argc, char *argv[]) {
-    assert(argc > 3);
-    in_addr_t ip = inet_addr(argv[1]);
-    uint16_t port = htons(atoi(argv[2]));
+
+    setSignalsProperties();
+    struct Args args = parseArgs(argc - 1, argv + 1);
+
+    in_addr_t ip = inet_addr(args.ip);
+    uint16_t port = htons(args.port);
 
     int soc = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -46,6 +84,10 @@ int main(int argc, char *argv[]) {
             .sin_family = AF_INET, .sin_port = port, .sin_addr = ip};
 
     int connect_res = connect(soc, (struct sockaddr *) &ipv4_addr, sizeof ipv4_addr);
+    if (connect_res == -1) {
+        fprintf(stderr, "can connect server");
+        return 1;
+    }
 
     char buf[BUF_MAX];
     while (flag && fgets(buf, BUF_MAX - 1, stdin) != NULL) {
